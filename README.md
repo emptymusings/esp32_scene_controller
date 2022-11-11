@@ -1,5 +1,5 @@
 # Controlling Home Automation Scenes with ESP32 and MQTT
-Using the ESP32 with Micropython and momentary for MQTT communication to control scenes
+Using the ESP32 with Micropython and momentary switch for MQTT communication to control scenes
 
 ## The Problem (background because everyone needs to hear my life story)
 I have been lightly tinkering with home automation for about a decade.  My initial deployment used proprietary (brand-specific) RF smart devices for climate and lighting control, but as its aged, it has become unstable, and lights will turn on/off on their own.  Prices for smart devices have come down significantly since I first started, and they've become more capable.  Adding to that the fact that there are many more options for a central processor available, I've gone about incrementally swapping out and modernizing my troublesome devices.
