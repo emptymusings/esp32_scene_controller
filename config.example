@@ -1,0 +1,22 @@
+# Networking
+wifi_ssid = '<Your WiFi network name>'
+wifi_password = '<Your WiFi password>'
+
+# MQTT Setup
+mqtt_user_id = '<Your MQTT client user id>' # Optional - depending on your MQTT broker's configuration
+mqtt_password = '<Your MQTT user password>' # Optional - depending on your MQTT broker's configuration
+mqtt_broker = '<Your MQTT broker IP Address or host name>'
+mqtt_client_id = None # String, defaults to machine name, can be set, but MUST be unique
+
+# Device timing settings
+mqtt_keep_alive_interval_in_seconds = 60 
+seconds_to_wait_after_reset_call = 5
+connection_led_pin = 2 # Onboard LED
+
+button1_pin = 4 # Any GPIO that allows input will do
+
+# MQTT Subscription Topics
+reset_topic = 'esp32_scene_control/reset' # Subscribed topic that allows events to restart the ESP32
+
+# MQTT Publication Topics
+button1_pressed_topic = 'esp32_scene_control/button1' # Event to be published when the button is pressed
