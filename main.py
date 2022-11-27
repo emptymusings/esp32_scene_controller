@@ -3,12 +3,18 @@ import time, socket, network, _thread
 from umqtt.simple import MQTTClient
 import config
 from led import LED
+import esp32
 
 import machine 
 
 # Initialization
 restarting = False
 last_update = time.time()
+
+if (config.connection_led_pin != 2):
+    onboard = Pin(2, Pin.OUT)
+    onboard.value(0)
+
 connection_led = LED(config.connection_led_pin, 0)
 main_loop_errors = 0
 button1 = machine.Pin(config.button1_pin)
@@ -57,9 +63,14 @@ def connect_wifi():
     try:        
         connection_led.blink_start()
 
+        try:
+            station.disconnect()
+        except:
+            pass
+
+        print("Connecting to %s" % SSID)
         station.connect(SSID, WIFI_PASSWORD)
         
-        print("Connecting to %s" % SSID)
         pending = ''
 
         while station.isconnected() == False:
@@ -88,6 +99,7 @@ def mqtt_callback(topic, msg):
     """
     global last_update
     global connection_led
+    global mqttc_isconnected
     
     print('Received subscribed topic message')
     print(topic, msg)
@@ -95,6 +107,10 @@ def mqtt_callback(topic, msg):
     
     if topic == config.reset_topic.encode():
         reset_device()
+
+    if msg == b'PINGRESP':
+        print("Received ping response")
+        mqttc_isconnected = True
 
     connection_led.set_state(1)
     
@@ -106,9 +122,19 @@ def connect_mqtt():
     global mqttc_isconnected
     global connection_led
     
-    connection_led.blink_start()
-    mqttc_isconnected = False
     print('Connecting to MQTT broker')
+
+    if not station.isconnected():
+        connect_wifi()
+
+    connection_led.blink_start()
+    
+    try:
+        mqttc.disconnect()
+    except: 
+        pass
+
+    mqttc_isconnected = False
 
     try:
         # Use the machine's unique ID as the client_id by default
@@ -120,7 +146,9 @@ def connect_mqtt():
             
         # Connect to the MQTT broker, setting the callback and subscrption(s)
         mqtt_server = config.mqtt_broker
+
         mqttc = MQTTClient(client_id, mqtt_server, user=config.mqtt_user_id, password=config.mqtt_password, keepalive=config.mqtt_keep_alive_interval_in_seconds)
+        mqttc.set_last_will(config.last_will_topic, b'Scene controller last will')
         mqttc.set_callback(mqtt_callback)
         mqttc.connect()
         mqttc_isconnected = True        
@@ -132,7 +160,7 @@ def connect_mqtt():
         print('Connection Successful')
     except OSError as e:
         print(e)
-        time.sleep(30)
+        reset_device()
 
 def mqtt_publish_button_press(topic):
     """
@@ -147,6 +175,49 @@ def mqtt_publish_button_press(topic):
     else:
         pass
 
+def mqtt_check_status():
+    global last_update
+    global mqttc_isconnected
+    
+    now = time.time()
+    
+    try:
+        mqttc.ping()
+        mqttc.wait_msg()
+        last_update = now
+        mqttc_isconnected = True
+    except OSError as e:
+        print(e)
+        connect_mqtt()
+
+def button_thread():
+    global button1_is_pressed
+    global button1_is_held
+    global button1
+
+    # while True:
+    try:
+        # Check to see if the button has been pressed or not
+        button1_is_pressed = button1.value()
+
+        if (button1_is_pressed == 1 and not button1_is_held):
+            # Publish MQTT that the button is pressed, accounting for it not being released since the last press
+            button1_is_held = True
+            
+            connection_led.blink_start()
+            
+            # connect_mqtt()
+            mqtt_check_status()
+            mqtt_publish_button_press(config.button1_pressed_topic)
+            time.sleep(.25)
+            connection_led.blink_stop()
+        elif not button1_is_pressed:
+            button1_is_held = False
+
+    except:
+        connection_led.blink_stop(1)
+        mqtt_check_status()
+
 def main():
     """
     Constant loop to check for connectivity, button state, etc
@@ -160,39 +231,22 @@ def main():
             if (not station.isconnected()):
                 connect_wifi()
             
-            try:
-                # See if there are any pending MQTT messages
-                if mqttc_isconnected:
-                    mqttc.check_msg()
-                else:
-                    connect_mqtt()
-            except OSError as e:
-                print(str(e))        
-                connect_mqtt()
-
-            
             now = time.time()
 
             # Is it time to ping for keep alive/connection check?
             if now - last_update >= config.mqtt_keep_alive_interval_in_seconds:   
-                try:
-                    mqttc.ping()
-                    mqttc.wait_msg()
-                    last_update = now
-                except OSError as e:
-                    print(e)
-                    connect_mqtt()
+                mqtt_check_status()
+                raw_temp = esp32.raw_temperature()
+                mqttc.publish(config.internal_temp_topic.encode(), str(raw_temp).encode())
+                
+            button_thread()
 
-            # Check to see if the button has been pressed or not
-            button1_is_pressed = button1.value()
-
-            if (button1_is_pressed == 1 and not button1_is_held):
-                # Publish MQTT that the button is pressed, accounting for it not being released since the last press
-                button1_is_held = True
-                mqtt_publish_button_press(config.button1_pressed_topic)
-                time.sleep(.25)
-            elif not button1_is_pressed:
-                button1_is_held = False
+            try:
+                # See if there are any pending MQTT messages
+                mqttc.check_msg()                
+            except OSError as e:
+                print(str(e))        
+                connect_mqtt()
 
         except OSError as e:
             print(e)
@@ -206,4 +260,6 @@ def main():
 # Make initial WiFi connection, then run the main loop.  
 # The initial connection is important to prevent issues with timing and multiple calls to connect
 connect_wifi()
-main()        
+#buttonThread = _thread.start_new_thread(button_thread, ())
+main()
+machine.reset()
